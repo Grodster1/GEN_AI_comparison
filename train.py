@@ -16,7 +16,7 @@ def train_vae(model, train_loader, test_loader, epochs = 50, lr=1e-4, beta = 1.0
     if checkpoint_path and os.path.exists(checkpoint_path):
         start_epoch = load_checkpoint(model, optimizer, filename = checkpoint_path, device = device)
 
-    for epoch in range(epochs):
+    for epoch in range(start_epoch, epochs):
         model.train()
         train_loss = 0
         for batch_idx, (data, _) in enumerate(train_loader):
@@ -46,6 +46,6 @@ if __name__ == "__main__":
     torch.manual_seed(42)
     train_loader, test_loader, classes = get_cifar10(batch_size=64)
     model = VAE(latent_dim=128)
-    train_vae(model, train_loader, test_loader, epochs=50, lr=1e-4, beta=1.0, 
+    train_vae(model, train_loader, test_loader, epochs=50, lr=5e-5, beta=1.0, 
                 device="cuda" if torch.cuda.is_available() else "cpu", 
                 checkpoint_path="checkpoints/vae_final.pth" if os.path.exists("checkpoints/vae_final.pth") else None)
