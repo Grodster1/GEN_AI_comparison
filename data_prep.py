@@ -1,6 +1,7 @@
 import torch 
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
 
 def get_cifar10(batch_size = 64, data_dir = "./data"):
     transform = transforms.Compose([
@@ -15,6 +16,7 @@ def get_cifar10(batch_size = 64, data_dir = "./data"):
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle = False, num_workers=2)
 
     return train_loader, test_loader, train_dataset.classes
+
 
 if __name__ == "__main__":
     train_loader, test_loader, classes = get_cifar10()

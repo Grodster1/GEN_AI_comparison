@@ -8,6 +8,8 @@ class VAE(nn.Module):
 
         self.latent_dim = latent_dim
 
+        #Output size = floor((input_size + 2 * padding - kernel_size) / stride) + 1
+
         self.encoder = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(64),

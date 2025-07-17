@@ -1,7 +1,8 @@
 import torch
 from data_prep import get_cifar10
 from vae_model import VAE
-from visualization import visualize_latent_space, interpolate_latent_space
+from cvae_model import ConditionalVAE
+from visualization import visualize_latent_space, interpolate_latent_space, sample_latent_space
 import os
 
 def load_model(model, checkpoint_path, device):
@@ -19,13 +20,14 @@ def main():
 
     _, test_loader, _ = get_cifar10(batch_size=64)
 
-    vae = VAE(latent_dim=128).to(device)
-    vae = load_model(vae, "checkpoints/vae_final.pth", device)
-    
-
-    visualize_latent_space(vae, test_loader, method="tsne", n_samples=1000, device=device)
-    visualize_latent_space(vae, test_loader, method="pca", n_samples=1000, device=device)
-    interpolate_latent_space(vae, test_loader)
+    #vae = VAE(latent_dim=128).to(device)
+    #vae = load_model(vae, "checkpoints/vae_final.pth", device)
+    cvae = ConditionalVAE(latent_dim=128).to(device)
+    cvae = load_model(cvae, "checkpoints/cvae_final.pth", device)
+    #visualize_latent_space(vae, test_loader, method="tsne", n_samples=1000, device=device)
+    #visualize_latent_space(vae, test_loader, method="pca", n_samples=1000, device=device)
+    #interpolate_latent_space(vae, test_loader)
+    sample_latent_space(model=cvae, latent_dim=128, label=5)
 
 
 if __name__ == "__main__":

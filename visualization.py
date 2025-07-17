@@ -1,6 +1,7 @@
 import torch
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+import torch.nn.functional as F
 import numpy as np
 import torchvision.utils as vutils
 from sklearn.decomposition import PCA
@@ -29,11 +30,16 @@ def show_reconstructions(model, test_loader, device):
         comparison = torch.cat([data[:5], recon[:5]])
         imshow(vutils.make_grid(comparison.cpu(), nrow=8), title="Original (top) vs Reconstructed (bottom)")
     
-def sample_latent_space(model, latent_dim, n_samples=5, device = "cuda"):
+def sample_latent_space(model, latent_dim, n_samples=1, device = "cuda", label = None):
     model.eval()
     with torch.no_grad():
         z = torch.randn(n_samples, latent_dim).to(device)
-        samples = model.decode(z)
+        if label is not None:
+            y = torch.tensor([label] * n_samples, device=device)
+            y_one_hot = F.one_hot(y, num_classes=model.num_classes).float()
+            samples = model.decode(z, y_one_hot)
+        else:
+            samples = model.decode(z)
         imshow(vutils.make_grid(samples.cpu(), nrow=n_samples), title="Generated Samples")
 
 def interpolate_latent_space(model, test_loader, n_steps=10, streamlit = False, device="cuda"):
