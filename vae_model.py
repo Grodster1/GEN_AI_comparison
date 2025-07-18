@@ -3,15 +3,16 @@ from torch import nn
 from torch.nn import functional as F
 
 class VAE(nn.Module):
-    def __init__(self, latent_dim = 128):
+    def __init__(self, latent_dim = 128, img_channels = 3):
         super().__init__()
 
         self.latent_dim = latent_dim
+        self.img_channels = img_channels
 
         #Output size = floor((input_size + 2 * padding - kernel_size) / stride) + 1
 
         self.encoder = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=4, stride=2, padding=1),
+            nn.Conv2d(self.img_channels, 64, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),
@@ -36,7 +37,7 @@ class VAE(nn.Module):
             nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
-            nn.ConvTranspose2d(64, 3, kernel_size=4, stride=2, padding=1),
+            nn.ConvTranspose2d(64, self.img_channels, kernel_size=4, stride=2, padding=1),
             nn.Tanh()
         )
 
