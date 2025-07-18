@@ -21,14 +21,21 @@ def imshow(img, title = "", streamlit = False):
         plt.axis("off")
         plt.show()
 
-def show_reconstructions(model, test_loader, device):
+def show_reconstructions(model, test_loader, device, n_samples = 5, cvae=False):
     model.eval()
     with torch.no_grad():
-        data, _ = next(iter(test_loader))
+        # Get a batch from the test loader
+        data, label = next(iter(test_loader))
         data = data.to(device)
-        recon, _, _ = model(data)
-        comparison = torch.cat([data[:5], recon[:5]])
-        imshow(vutils.make_grid(comparison.cpu(), nrow=8), title="Original (top) vs Reconstructed (bottom)")
+        
+        if cvae:
+            label_onehot = F.one_hot(label, num_classes=10).float().to(device)
+            recon, _, _ = model(data, label_onehot)
+        else:
+            recon, _, _ = model(data)
+        
+        comparison = torch.cat([data[:n_samples], recon[:n_samples]])
+        imshow(vutils.make_grid(comparison.cpu(), nrow=n_samples), title="Original (top) vs Reconstructed (bottom)")
     
 def sample_latent_space(model, latent_dim, n_samples=1, device = "cuda", label = None):
     model.eval()
@@ -80,13 +87,13 @@ def visualize_latent_space(model, test_loader, method = "tsne", n_samples = 1000
         title = "PCA Representation of Latent Space"
 
     if streamlit:
-        fig, ax = plt.subplots(figsize=(8, 6))
+        fig, ax = plt.subplots(figsize=(8, 6), subplot_kw={"projection":"3d"})
         scatter = ax.scatter3D(z_3d[:, 0], z_3d[:, 1], z_3d[:, 2], c=y_array, cmap='viridis', s=5)
         ax.set_title(title)
         ax.set_xlabel(f"{method.upper()} Component 1")
         ax.set_ylabel(f"{method.upper()} Component 2")
         ax.set_zlabel(f"{method.upper()} Component 3")
-        plt.colorbar(scatter, ax=ax)
+        plt.colorbar(scatter, ax=ax, pad=0.1)
 
 
         return fig

@@ -20,14 +20,14 @@ def main():
 
     _, test_loader, _ = get_cifar10(batch_size=64)
 
-    #vae = VAE(latent_dim=128).to(device)
-    #vae = load_model(vae, "checkpoints/vae_final.pth", device)
-    cvae = ConditionalVAE(latent_dim=128).to(device)
-    cvae = load_model(cvae, "checkpoints/cvae_final.pth", device)
-    #visualize_latent_space(vae, test_loader, method="tsne", n_samples=1000, device=device)
-    #visualize_latent_space(vae, test_loader, method="pca", n_samples=1000, device=device)
+    vae = VAE(latent_dim=128).to(device)
+    vae = load_model(vae, "checkpoints/vae_final.pth", device)
+    #cvae = ConditionalVAE(latent_dim=128).to(device)
+    #cvae = load_model(cvae, "checkpoints/cvae_final.pth", device)
+    visualize_latent_space(vae, test_loader, method="tsne", n_samples=1000, device=device)
+    visualize_latent_space(vae, test_loader, method="pca", n_samples=1000, device=device)
     #interpolate_latent_space(vae, test_loader)
-    sample_latent_space(model=cvae, latent_dim=128, label=5)
+    #sample_latent_space(model=vae, latent_dim=128, label=1)
 
 
 if __name__ == "__main__":
