@@ -6,6 +6,7 @@ import torch.optim as optim
 from data_prep import get_cifar10
 from vae_model import VAE, vae_loss
 from cvae_model import ConditionalVAE
+from cgan_model import CGAN
 from visualization import show_reconstructions, sample_latent_space
 from utils import save_checkpoint, load_checkpoint
 
@@ -89,6 +90,71 @@ def train_cvae(model:ConditionalVAE, train_loader, test_loader, epochs = 50,  lr
 
     save_checkpoint(model, optimizer, epochs, f"checkpoints/cvae_final.pth")
 
+
+def train_cgan(model:CGAN, train_loader, test_loader, epochs = 200, checkpoint_path = None):
+    cgan = model
+    device = cgan.device
+    print(f"Using {device}")
+
+    
+    start_epoch = 0
+    if checkpoint_path and os.path.exists(checkpoint_path):
+        start_epoch = load_checkpoint(cgan, None, checkpoint_path, device, is_cgan=True)
+
+    # Learning rate schedulers
+    g_scheduler = optim.lr_scheduler.StepLR(cgan.gen_optimizer, step_size=50, gamma=0.8)
+    d_scheduler = optim.lr_scheduler.StepLR(cgan.dis_optimizer, step_size=50, gamma=0.8)
+
+    for epoch in range(start_epoch, epochs):
+        epoch_g_loss = 0
+        epoch_d_loss = 0
+        num_batches = 0
+        
+        for batch_idx, (real_images, real_labels) in enumerate(train_loader):
+            real_images = real_images.to(device)
+            real_labels = real_labels.to(device)
+            batch_size = real_images.size(0)
+
+            dis_loss, real_dis_loss, fake_dis_loss = cgan.train_discriminator(real_images, real_labels, batch_size)
+            
+            gen_loss1 = cgan.train_generator(batch_size)
+            gen_loss2 = cgan.train_generator(batch_size)
+            gen_loss = (gen_loss1 + gen_loss2) / 2
+            
+            epoch_g_loss += gen_loss
+            epoch_d_loss += dis_loss
+            num_batches += 1
+
+            if batch_idx % 100 == 0:  # Print less frequently
+                print(f"Epoch {epoch+1}/{epochs} [{batch_idx+1}/{len(train_loader)}] "
+                      f"Gen Loss: {gen_loss:.4f}, Dis Loss: {dis_loss:.4f}, "
+                      f"D(real): {real_dis_loss:.4f}, D(fake): {fake_dis_loss:.4f}")
+
+        g_scheduler.step()
+        d_scheduler.step()
+        
+        avg_g_loss = epoch_g_loss / num_batches
+        avg_d_loss = epoch_d_loss / num_batches
+        print(f"Epoch {epoch+1} Summary - Avg Gen Loss: {avg_g_loss:.4f}, Avg Dis Loss: {avg_d_loss:.4f}")
+        
+        if (epoch + 1) % 10 == 0:
+            print("Generating sample images...")
+            try:
+                cgan.eval()
+                with torch.no_grad():
+                    for class_idx in range(10):
+                        samples, _ = cgan.generate_samples(1, specific_class=class_idx)
+                        print(f"Class {class_idx}: min={samples.min():.3f}, max={samples.max():.3f}, mean={samples.mean():.3f}")
+                cgan.train()
+            except Exception as e:
+                print(f"Error generating samples: {e}")
+
+        if (epoch + 1) % 25 == 0:
+            save_checkpoint(cgan, None, epoch+1, f"checkpoints/cgan_epoch_{epoch+1}.pth", is_cgan=True)
+
+    return cgan
+
+
 def test_model_generation(model, device):
     """Test the model's generation capability"""
     model.eval()
@@ -116,5 +182,13 @@ if __name__ == "__main__":
         train_cvae(model, train_loader, test_loader, epochs=60, lr=1e-4, beta=0.5, 
                     device="cuda" if torch.cuda.is_available() else "cpu",
                     checkpoint_path="checkpoints/cvae_final.pth" if os.path.exists("checkpoints/cvae_final.pth") else None)
+        
+    elif len(sys.argv) > 1 and sys.argv[1] == "cgan":
+        torch.manual_seed(42)
+        train_loader, test_loader, classes = get_cifar10(batch_size=128)  
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = CGAN(device=device)
+        train_cgan(model, train_loader, test_loader,
+                    checkpoint_path="checkpoints/cgan_final.pth" if os.path.exists("checkpoints/cgan_final.pth") else None)
     else:
-        print("Enter 'vae' or 'cvae' in the command")
+        print("Enter 'vae', 'cvae' or 'cgan' in the command")
