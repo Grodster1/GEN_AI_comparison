@@ -30,7 +30,7 @@ def main():
 
     _, test_loader, _ = get_cifar10(batch_size=64)
     cgan = CGAN().to(device)
-    cgan = load_model(cgan, "checkpoints/cgan_epoch_50.pth", device)
+    cgan = load_model(cgan, "checkpoints/cgan_epoch_75.pth", device)
     vae = VAE(latent_dim=128).to(device)
     vae = load_model(vae, "checkpoints/vae_final.pth", device)
     #cvae = ConditionalVAE(latent_dim=128).to(device)

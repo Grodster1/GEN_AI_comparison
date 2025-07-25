@@ -189,6 +189,6 @@ if __name__ == "__main__":
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = CGAN(device=device)
         train_cgan(model, train_loader, test_loader,
-                    checkpoint_path="checkpoints/cgan_final.pth" if os.path.exists("checkpoints/cgan_final.pth") else None)
+                    checkpoint_path="checkpoints/cgan_epoch_50.pth" if os.path.exists("checkpoints/cgan_epoch_50.pth") else None)
     else:
         print("Enter 'vae', 'cvae' or 'cgan' in the command")
