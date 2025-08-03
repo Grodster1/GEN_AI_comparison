@@ -3,19 +3,24 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 
-def get_cifar10(batch_size = 64, data_dir = "./data"):
+def get_cifar10(batch_size = 64, data_dir = "./data", is_cgan = False):
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
+    if is_cgan:
+        train_dataset = datasets.CIFAR10(root = data_dir, train = True, transform=transform, download=True)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle = True, num_workers = 2)
+        return train_loader, train_dataset.classes
+    
+    else:
+        train_dataset = datasets.CIFAR10(root = data_dir, train = True, transform=transform, download=True)        
+        test_dataset = datasets.CIFAR10(root = data_dir, train = False, transform=transform, download=True)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle = True, num_workers = 2)
 
-    train_dataset = datasets.CIFAR10(root = data_dir, train = True, transform=transform, download=True)
-    test_dataset = datasets.CIFAR10(root = data_dir, train = False, transform=transform, download=True)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle = False, num_workers=2)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle = True, num_workers = 2)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle = False, num_workers=2)
-
-    return train_loader, test_loader, train_dataset.classes
+        return train_loader, test_loader, train_dataset.classes
 
 
 if __name__ == "__main__":

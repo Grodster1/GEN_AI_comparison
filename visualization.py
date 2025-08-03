@@ -37,7 +37,7 @@ def show_reconstructions(model, test_loader, device, n_samples = 5, cvae=False):
         comparison = torch.cat([data[:n_samples], recon[:n_samples]])
         imshow(vutils.make_grid(comparison.cpu(), nrow=n_samples), title="Original (top) vs Reconstructed (bottom)")
     
-def sample_latent_space(model, latent_dim, n_samples=1, device = "cuda", label = None, is_cgan = False):
+def sample_latent_space(model, n_samples=1, device = "cuda", label = None, is_cgan = False):
     model.eval()
     with torch.no_grad():
         if is_cgan:                         
@@ -49,7 +49,7 @@ def sample_latent_space(model, latent_dim, n_samples=1, device = "cuda", label =
             
             samples = model.generator(noise, labels)
         else:    
-            z = torch.randn(n_samples, latent_dim).to(device)
+            z = torch.randn(n_samples, model.latent_dim).to(device)
             if label is not None:
                 y = torch.tensor([label] * n_samples, device=device)
                 y_one_hot = F.one_hot(y, num_classes=model.num_classes).float()

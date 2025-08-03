@@ -1,6 +1,6 @@
 import streamlit as st
 import torch
-import torch.functional as F
+import torch.nn.functional as F
 from data_prep import get_cifar10
 from vae_model import VAE
 from cvae_model import ConditionalVAE
@@ -129,7 +129,7 @@ def main():
         "VAE": "checkpoints/vae_final.pth",
         "CVAE": "checkpoints/cvae_final.pth",
         "CGAN": "checkpoints/cgan_epoch_50.pth", 
-        "SAGAN": "checkpoints/sagan_epoch_50.pth",
+        # "SAGAN": "checkpoints/sagan_epoch_50.pth",
         # "Diffusion": "checkpoints/diffusion_final.pth"  # For future
     }
     
