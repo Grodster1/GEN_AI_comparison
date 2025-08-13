@@ -13,6 +13,21 @@ from visualization import show_reconstructions, sample_latent_space
 from utils import save_checkpoint, load_checkpoint
 
 def train_vae(model:VAE, train_loader, test_loader, epochs = 50, lr=1e-4, beta = 1.0, device = 'cuda', checkpoint_path = None):
+    """
+    Training sequence for Variational Auto Encoder.
+    
+    Args:
+        model (VAE model): The model to perform training on.
+        train_loader: Data train loader with CIFAR10 dataset.
+        test_loader: Data test loader with CIFAR10 dataset.
+        epochs (int): Number of epochs of training.
+        lr (float): Learning rate for training cycle.
+        beta (float): Beta hyperparameter used for vae_loss function
+        device (str): The device ('cuda' or 'cpu') to train model on.
+        checkpoint_path (str): Path to saved checkpoint of trainig parameters.
+    """
+    
+    
     print(f"Using {device}")
 
     model.to(device)
@@ -92,70 +107,70 @@ def train_cvae(model:ConditionalVAE, train_loader, test_loader, epochs = 50,  lr
     save_checkpoint(model, optimizer, epochs, f"checkpoints/cvae_final.pth")
 
 
-def train_cgan(model:CGAN, train_loader, epochs = 200, checkpoint_path = None):
+def train_cgan(model:CGAN, train_loader, epochs=200, n_critic=5, checkpoint_path=None, device='cuda'):
     
     print(f"Using {model.device}")
-
-
     model.generator.to(model.device)
     model.discriminator.to(model.device)
-
 
     start_epoch = 0
     if checkpoint_path and os.path.exists(checkpoint_path):
         start_epoch = load_checkpoint(model, model.gen_optimizer, model.dis_optimizer, checkpoint_path, model.device, is_cgan=True)
         print(f"Resuming trainig from epoch {start_epoch + 1}")
 
-    fixed_noise = model.generate_noise(100)
-    fixed_labels = torch.LongTensor(np.arange(100) % model.num_classes).to(model.device)
+    fixed_noise = model.generate_noise(64)
+    fixed_labels = torch.arange(model.num_classes).repeat(64 // model.num_classes + 1)[:64].to(model.device)
     
-    os.makedirs("cgan_samples", exist_ok=True)
+    os.makedirs("wcgan_samples", exist_ok=True)
+    os.makedirs("wcgan_checkpoints", exist_ok=True)
 
-    d_losses = []
-    g_losses = []
+    instance_noise_std = 0.1  
+    noise_anneal = 0.995
 
     for epoch in range(start_epoch, epochs):
 
-        epoch_d_loss = 0
-        epoch_g_loss = 0
+        epoch_d_loss = 0.0
+        epoch_g_loss = 0.0
 
         for batch_idx, (imgs, labels) in enumerate(train_loader):
-            batch_size = imgs.size(0)
-
             imgs = imgs.to(model.device)
             labels = labels.to(model.device)
+            d_loss_val = 0.0
 
-            d_loss, d_loss_real, d_loss_fake = model.train_discriminator_step(imgs, real_labels=labels)
-            g_loss = model.train_generator_step(batch_size)
-            if d_loss.item() < 0.7 or batch_idx % 2 == 0:  
-                g_loss = model.train_generator_step(batch_size)
+            for _ in range(n_critic):
+                d_loss, r_mean, f_mean, gp = model.train_discriminator_step(imgs, labels, instance_noise_std)
+                d_loss_val = d_loss
             
-            epoch_d_loss += d_loss.item()
-            epoch_g_loss += g_loss.item()
+            epoch_d_loss += d_loss_val
+
+            g_loss_val = model.train_generator_step(imgs.size(0), fixed_labels[:imgs.size(0)], instance_noise_std)
+            epoch_g_loss += g_loss_val
 
             if batch_idx % 100 == 0:
-                print(
-                    f"[Epoch {epoch+1}/{epochs}] [Batch {batch_idx}/{len(train_loader)}] "
-                    f"[D loss: {d_loss.item():.4f} (Real: {d_loss_real.item():.4f}, Fake: {d_loss_fake.item():.4f})] "
-                    f"[G loss: {g_loss.item():.4f}]"
-                    )
+                print(f"[Epoch {epoch+1}/{epochs}] [Batch {batch_idx}/{len(train_loader)}] "
+                      f"[D loss: {d_loss_val:.4f} (real_mean={r_mean:.4f}, fake_mean={f_mean:.4f}, gp={gp:.4f})] "
+                      f"[G loss: {g_loss_val:.4f}]")
+
+        instance_noise_std *= noise_anneal
 
         avg_d_loss = epoch_d_loss / len(train_loader)
         avg_g_loss = epoch_g_loss / len(train_loader)
-        d_losses.append(avg_d_loss)
-        g_losses.append(avg_g_loss)
+        
 
         print(f"Epoch {epoch+1} - Avg D Loss: {avg_d_loss:.4f}, Avg G Loss: {avg_g_loss:.4f}")
 
-        model.gen_scheduler.step()
-        model.dis_scheduler.step()
+        #model.gen_scheduler.step()
+        #model.dis_scheduler.step()
         
-        with torch.no_grad():
-            samples = model(fixed_noise, fixed_labels).detach().cpu()
-            save_image(samples, f"cgan_samples/{epoch+1:04d}.png", nrow=10, normalize=True)
+        if (epoch + 1) % 5 == 0 or epoch == 0:
+            with torch.no_grad():
+                model.generator.eval()
+                samples = model.generator(fixed_noise, fixed_labels).detach().cpu()
+                save_image(samples, f"wcgan_samples/epoch_{epoch+1:04d}.png", nrow=8, normalize=True)
+                model.generator.train()
         
         if (epoch + 1) % 10 == 0:
-            save_checkpoint(model, model.gen_optimizer, model.dis_optimizer, epoch + 1, f"cgan_checkpoints/cgan_epoch_{epoch+1}.pth", is_cgan=True)
+            save_checkpoint(model, model.gen_optimizer, model.dis_optimizer, epoch + 1, f"wcgan_checkpoints/wcgan_epoch_{epoch+1}.pth", is_cgan=True)
 
     save_checkpoint(model, model.gen_optimizer, model.dis_optimizer, epochs, f"cgan_checkpoints/cgan_final.pth", is_cgan=True)
 
@@ -184,7 +199,7 @@ if __name__ == "__main__":
         print(f"Classes: {classes}")
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        model = CGAN(num_classes=len(classes), device=device)
-        train_cgan(model, train_loader, epochs = 200, checkpoint_path="cgan_checkpoints/cgan_final.pth" if os.path.exists("cgan_checkpoints/cgan_final.pth") else None)
+        model = CGAN(num_classes=len(classes), device=device, lr=1e-4, betas=(0.5,0.99), lambda_gp=5.0)        
+        train_cgan(model, train_loader, epochs = 200, n_critic=4, checkpoint_path=None, device=device)
     else:
-        print("Enter 'vae', 'cvae' or 'cgan' in the command")
+        print("Enter 'vae', 'cvae' or 'cgan' in the terminal")

@@ -14,6 +14,8 @@ data/
 checkpoints/
 cgan_checkpoints/
 cgan_samples/
+wcgan_checkpoints/
+wcgan_samples/
 
 
 # C extensions
