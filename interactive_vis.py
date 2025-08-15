@@ -19,57 +19,93 @@ CIFAR10_CLASSES = [
 
 #Without caching when user interacts with app the entire Python script has to be rerun
 @st.cache_resource
-def load_model_cached(model_type, checkpoint, device):
-    if model_type == "VAE":
-        model = VAE(latent_dim=128).to(device)
-    elif model_type == "CVAE":
-        model = ConditionalVAE(latent_dim=128).to(device)
-    elif model_type == "CGAN":
-        model = CGAN(latent_dim=100).to(device)
-
-    else:
+def load_model_cached(model_type, checkpoint_path, device):
+    """Enhanced model loading function with proper CGAN checkpoint handling"""
+    
+    if not os.path.exists(checkpoint_path):
+        st.error(f"Checkpoint {checkpoint_path} does not exist")
         return None
-
-    if os.path.exists(checkpoint):
-        checkpoint = torch.load(checkpoint, map_location=device)
-
+    
+    try:
+        # Load checkpoint
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        
+        # Initialize model based on type
         if model_type == "VAE":
+            model = VAE(latent_dim=128).to(device)
             model.load_state_dict(checkpoint["model_state_dict"])
-
+            
         elif model_type == "CVAE":
+            model = ConditionalVAE(latent_dim=128).to(device)
             model.load_state_dict(checkpoint["model_state_dict"])
-
-        else:
-            model.load_state_dict(checkpoint)
-
-        st.success(f"Successfully loaded model {model_type}")
-    
-    else:
-        st.error(f"Checkpoint {checkpoint} does not exist")
-        return None
-    
-    model.eval()
-    return model
-
-
-
-def generate_images_by_classes(model, model_type, target_class, n_samples, device = "cuda"):
-    model.eval()
-    with torch.no_grad():
-        if model_type == "CVAE":
-            z = torch.randn(n_samples, model.latent_dim).to(device)
-            y = torch.tensor([target_class] * n_samples, device=device)
-            y_one_hot = F.one_hot(y, num_classes=model.num_classes).float()
-            samples = model.decode(z, y_one_hot)
+            
         elif model_type == "CGAN":
-            noise = model.generate_noise(n_samples)
-            labels = torch.full((n_samples,), target_class, device=device)
-            samples = model.generator(noise, labels)
+            # CGAN has different checkpoint structure
+            model = CGAN().to(device)
+            
+            # Check checkpoint structure and load accordingly
+            if "generator_state_dict" in checkpoint and "discriminator_state_dict" in checkpoint:
+                # New checkpoint format (separate generator/discriminator)
+                model.generator.load_state_dict(checkpoint["generator_state_dict"])
+                model.discriminator.load_state_dict(checkpoint["discriminator_state_dict"])
+                st.info(f"✅ Loaded CGAN from epoch {checkpoint.get('epoch', 'unknown')}")
+                
+            elif "generator" in checkpoint and "discriminator" in checkpoint:
+                # Alternative checkpoint format
+                model.generator.load_state_dict(checkpoint["generator"])
+                model.discriminator.load_state_dict(checkpoint["discriminator"])
+                
+            else:
+                # Try direct loading (older format)
+                try:
+                    model.load_state_dict(checkpoint)
+                except RuntimeError as e:
+                    st.error(f"❌ Cannot load CGAN checkpoint. Unsupported format: {str(e)}")
+                    return None
+        
         else:
-            z = torch.randn(n_samples, model.latent_dim, device=device)
-            samples = model.decode(z)
+            st.error(f"❌ Unsupported model type: {model_type}")
+            return None
+        
+        model.eval()
+        st.success(f"✅ Successfully loaded {model_type} model")
+        return model
+        
+    except Exception as e:
+        st.error(f"❌ Error loading {model_type} model: {str(e)}")
+        return None
+
+
+
+def generate_images_by_classes(model, model_type, target_class, n_samples, device="cuda"):
+    """Enhanced image generation with better error handling"""
+    model.eval()
     
-    return samples
+    try:
+        with torch.no_grad():
+            if model_type == "CVAE":
+                z = torch.randn(n_samples, model.latent_dim).to(device)
+                y = torch.tensor([target_class] * n_samples, device=device)
+                y_one_hot = F.one_hot(y, num_classes=model.num_classes).float()
+                samples = model.decode(z, y_one_hot)
+                
+            elif model_type == "CGAN":
+                noise = model.generate_noise(n_samples)
+                labels = torch.full((n_samples,), target_class, device=device, dtype=torch.long)
+                samples = model.generator(noise, labels)
+                
+            elif model_type == "VAE":
+                z = torch.randn(n_samples, model.latent_dim, device=device)
+                samples = model.decode(z)
+                
+            else:
+                raise ValueError(f"Unsupported model type: {model_type}")
+        
+        return samples
+    
+    except Exception as e:
+        st.error(f"❌ Error generating images: {str(e)}")
+        return None
 
 def images_to_grid(images, nrow=4):
     grid = vutils.make_grid(images.cpu(), nrow=nrow, normalize=True)
@@ -128,7 +164,7 @@ def main():
     available_models = {
         "VAE": "checkpoints/vae_final.pth",
         "CVAE": "checkpoints/cvae_final.pth",
-        "CGAN": "checkpoints/cgan_epoch_50.pth", 
+        "CGAN": "cgan_checkpoints/cgan_final.pth", 
         # "SAGAN": "checkpoints/sagan_epoch_50.pth",
         # "Diffusion": "checkpoints/diffusion_final.pth"  # For future
     }

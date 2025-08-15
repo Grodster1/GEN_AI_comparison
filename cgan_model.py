@@ -10,45 +10,38 @@ def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
         nn.init.normal_(m.weight.data, 0.0, 0.02)
-        if getattr(m, 'bias', None) is not None:
-            nn.init.constant_(m.bias.data, 0)
-
     elif classname.find('BatchNorm') != -1:
         nn.init.normal_(m.weight.data, 1.0, 0.02)
         nn.init.constant_(m.bias.data, 0)
 
 
 class _Generator(nn.Module):
-    def __init__(self, latent_dim = 100, num_classes = 10, img_channels = 3, img_size = 32, embedding_size = 128):
-        super().__init__()
-        self.latent_dim = latent_dim
-        self.embedding = nn.Embedding(num_classes, embedding_size)
+    def __init__(self, latent_dim = 100, num_classes = 10, img_channels = 3, img_size = 32, embedding_size = 30):
+        super(_Generator, self).__init__()
 
-        self.init_size = img_size // 8  # 4 for 32x32
-        fc_dim = 512 * self.init_size * self.init_size
+        self.label_embedding = nn.Embedding(num_classes, embedding_size)
+        self.init_size = img_size // 8
         self.fc = nn.Sequential(
-            nn.Linear(latent_dim + embedding_size, fc_dim),
-            nn.BatchNorm1d(fc_dim),
-            nn.ReLU(True)
-        )
-
-        self.deconv_blocks = nn.Sequential(
-            # 4x4 -> 8x8
+                    nn.Linear(latent_dim + embedding_size, 512 * self.init_size * self.init_size),
+                    nn.BatchNorm1d(512 * self.init_size * self.init_size),
+                    nn.ReLU(True)
+                )        
+        self.model = nn.Sequential(
             nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(256),
             nn.ReLU(True),
-
+            
             # 8x8 -> 16x16
             nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(True),
-
+            
             # 16x16 -> 32x32
             nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(True),
-
-            # final conv
+            
+            # Final conv to get correct channels
             nn.Conv2d(64, img_channels, kernel_size=3, stride=1, padding=1),
             nn.Tanh()
         )
@@ -56,79 +49,72 @@ class _Generator(nn.Module):
         self.apply(weights_init)
 
     def forward(self, noise, labels):
-        lbl = self.embedding(labels)
-        x = torch.cat([noise, lbl], dim=1)
+        embedded_labels = self.label_embedding(labels)
+
+        x = torch.cat([noise, embedded_labels], dim = -1)
         x = self.fc(x)
-        x = x.view(x.size(0), 512, self.init_size, self.init_size)
-        return self.deconv_blocks(x)
+        x = x.view(-1, 512, self.init_size, self.init_size)
+        return self.model(x)
     
 class _Discriminator(nn.Module):
-    def __init__(self, num_classes = 10, img_channels =3, img_size = 32, embedding_size = 128):
-        super().__init__()
-        self.label_embedding = nn.Embedding(num_classes, embedding_size)
-
-        def conv_block(in_filters, out_filters, normalize=True):
-            layers = [nn.Conv2d(in_filters, out_filters, kernel_size=3, stride=2, padding=1)]
-            if normalize:
+    def __init__(self, num_classes = 10, img_channels =3, img_size = 32, embedding_size = 30):
+        super(_Discriminator, self).__init__()
+        self.label_embedding = nn.Embedding(num_classes, img_size * img_size)
+        
+        def discriminator_block(in_filters, out_filters, bn=True):
+            layers = [nn.Conv2d(in_filters, out_filters, 3, 2, 1)]
+            if bn:
                 layers.append(nn.BatchNorm2d(out_filters))
-            layers.append(nn.LeakyReLU(0.2, inplace=True))
+            layers.extend([
+                nn.LeakyReLU(0.2, inplace=True),
+                nn.Dropout2d(0.25)
+            ])
             return layers
         
         self.model = nn.Sequential(
-            *conv_block(img_channels, 64, normalize=False),  # First layer shouldn't have BatchNorm
-            *conv_block(64, 128),
-            *conv_block(128, 256),
-            *conv_block(256, 512)
+            *discriminator_block(img_channels + 1, 64, bn=False),  # No BN in first layer
+            *discriminator_block(64, 128),
+            *discriminator_block(128, 256),
+            *discriminator_block(256, 512)
         )
-
-        self.feature_size = 512 * (img_size // 16) * (img_size // 16)  # 512 * 2 * 2 for 32x32
         
-        self.fc_main = nn.Linear(self.feature_size, 1)
-        
-        self.embed_proj = nn.Linear(embedding_size, self.feature_size)
-
+        self.adv_layer = nn.Linear(512 * 2 * 2, 1)
         self.apply(weights_init)
 
     def forward(self, img, labels):
         batch_size = labels.size(0)
-        features = self.model(img)
-        features = features.view(batch_size, -1)
 
-        main_score = self.fc_main(features).view(-1)
+        label_map = self.label_embedding(labels).view(batch_size, 1, img.size(2), img.size(3))
 
-        embedded = self.label_embedding(labels)
-        embedded_proj = self.embed_proj(embedded)
-
-        proj_score = torch.sum(features * embedded_proj, dim = 1)
-
-        return main_score + proj_score
-
+        x = torch.cat([img, label_map], dim=1)
+        x = self.model(x)
+        x = x.view(batch_size, -1)
+        return self.adv_layer(x)
     
 
 class CGAN(nn.Module):
-    def __init__(self, latent_dim = 100, num_classes = 10, img_channels = 3, img_size = 32, embedding_size = 128, lr = 1e-4, device = 'cuda', betas=(0.0, 0.9), lambda_gp=10.0):
+    def __init__(self, latent_dim = 100, num_classes = 10, img_channels = 3, img_size = 32, embedding_size = 30, lr = 1e-4, device = 'cuda'):
         super(CGAN, self).__init__()
         self.device = device
         self.latent_dim = latent_dim
         self.num_classes = num_classes
-        self.lambda_gp = lambda_gp
-
 
         self.generator = _Generator(latent_dim, num_classes, img_channels, img_size, embedding_size)
         self.discriminator = _Discriminator(num_classes, img_channels, img_size, embedding_size)
 
-        #self.generator.to(device)
-        #self.discriminator.to(device)
+        self.generator.to(device)
+        self.discriminator.to(device)
 
-        self.gen_optimizer = optim.Adam(self.generator.parameters(), lr = lr, betas = betas)
-        self.dis_optimizer = optim.Adam(self.discriminator.parameters(), lr = lr, betas = betas)
+        self.gen_optimizer = optim.Adam(self.generator.parameters(), lr = lr, betas = (0.5, 0.999))
+        self.dis_optimizer = optim.Adam(self.discriminator.parameters(), lr = lr, betas= (0.5, 0.999))
 
-        #self.gen_scheduler = optim.lr_scheduler.StepLR(self.gen_optimizer, step_size=20, gamma = 0.1)
-        #self.dis_scheduler = optim.lr_scheduler.StepLR(self.dis_optimizer, step_size=20, gamma=0.1)
+        self.gen_scheduler = optim.lr_scheduler.ExponentialLR(self.gen_optimizer, gamma=0.995)
+        self.dis_scheduler = optim.lr_scheduler.ExponentialLR(self.dis_optimizer, gamma=0.998)
         
-        #self.loss = nn.BCEWithLogitsLoss()
+        self.loss = nn.BCEWithLogitsLoss()
 
     def forward(self, noise, labels):
+    
         return self.generator(noise, labels)
 
     def generate_noise(self, batch_size):
@@ -137,79 +123,47 @@ class CGAN(nn.Module):
     def generate_labels(self, batch_size):
         return torch.randint(0, self.num_classes, (batch_size, ), device=self.device)
     
-    @staticmethod
-    def _interpolate(real, fake):
-        alpha = torch.rand(real.size(0), 1, 1, 1, device=real.device)
-        alpha = alpha.expand_as(real)
-        
-        return (alpha * real + (1-alpha) * fake).requires_grad_(True)
-
-
-    def gradient_penalty(self, real_imgs, fake_imgs, labels):
-        interp = self._interpolate(real_imgs, fake_imgs)
-        d_interp = self.discriminator(interp, labels)
-        grads = torch.autograd.grad(
-            outputs=d_interp,
-            inputs=interp,
-            grad_outputs=torch.ones_like(d_interp, device=self.device),
-            create_graph=True, retain_graph=True, only_inputs=True
-        )[0]  # [Batch, Channel, Height, Width]
-        grads = grads.view(grads.size(0), -1)
-        gp = ((grads.norm(2, dim=1) - 1) ** 2).mean()
-        return gp
-    
-
-    def generator_loss(self, fake_imgs, fake_labels, instance_noise_std = 0.0):
-        if instance_noise_std > 0.0:
-            fake_imgs = fake_imgs + torch.randn_like(fake_imgs) * instance_noise_std
-        fake_scores = self.discriminator(fake_imgs, fake_labels)
-        return -fake_scores.mean()
-    
-    def discriminator_loss(self, real_imgs, real_labels, fake_imgs, fake_labels, instance_noise_std = 0.0):
-        if instance_noise_std > 0.0:
-            real_imgs = real_imgs + torch.randn_like(real_imgs) * instance_noise_std
-            fake_imgs = fake_imgs + torch.randn_like(fake_imgs) * instance_noise_std
-        
-        real_scores = self.discriminator(real_imgs, real_labels)
-        fake_scores = self.discriminator(fake_imgs, fake_labels)
-        
-        # WGAN discriminator loss: fake - real + lambda_gp * gp
-        gp = self.gradient_penalty(real_imgs, fake_imgs, real_labels)
-        d_loss = (fake_scores.mean() - real_scores.mean()) + self.lambda_gp * gp
-        return d_loss, real_scores.mean().item(), fake_scores.mean().item(), gp.item()
-
-
-    def train_generator_step(self, batch_size, fixed_labels = None, instance_noise_std = 0.0):
+    def train_generator_step(self, batch_size):
         self.gen_optimizer.zero_grad()
         
+        valid = torch.full((batch_size, 1), 1.0, device=self.device)
         noise = self.generate_noise(batch_size)
-        if fixed_labels is not None:
-            if len(fixed_labels) >= batch_size:
-                labels = fixed_labels[:batch_size]
-            else:
-                labels = fixed_labels.repeat((batch_size // len(fixed_labels)) + 1)[:batch_size]
-        else:
-            labels = self.generate_labels(batch_size)
 
-        gen_imgs = self.generator(noise, labels)
-        g_loss = self.generator_loss(gen_imgs, labels, instance_noise_std)
+        gen_labels = self.generate_labels(batch_size)
+        gen_imgs = self.generator(noise, gen_labels)
+
+        fake_pred = self.discriminator(gen_imgs, gen_labels)
+        g_loss = self.loss(fake_pred, valid)
+
         g_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.generator.parameters(), max_norm=1.0)
+
         self.gen_optimizer.step()
-        return g_loss.item()
+        return g_loss
     
 
-    def train_discriminator_step(self, real_imgs, real_labels, instance_noise_std=0.0):
+    def train_discriminator_step(self, real_imgs, real_labels):
         self.dis_optimizer.zero_grad()
         batch_size = real_imgs.size(0)
+        valid = torch.full((batch_size, 1), 0.9, device = self.device, dtype=torch.float32)
+        fake = torch.full((batch_size, 1), 0.1, device = self.device, dtype = torch.float32)
+
+        real_pred = self.discriminator(real_imgs, real_labels)
+        d_loss_real = self.loss(real_pred, valid)
 
         noise = self.generate_noise(batch_size)
-        fake_labels = real_labels
-        fake_imgs = self.generator(noise, fake_labels).detach()
+        gen_labels = self.generate_labels(batch_size)
+        gen_imgs = self.generator(noise, gen_labels)
+        fake_pred = self.discriminator(gen_imgs.detach(), gen_labels)
+        d_loss_fake = self.loss(fake_pred, fake)
 
-        d_loss, r_mean, f_mean, gp = self.discriminator_loss(real_imgs, real_labels, fake_imgs, fake_labels, instance_noise_std)
+        d_loss = (d_loss_real + d_loss_fake) / 2
         d_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.discriminator.parameters(), max_norm=1.0)
+
         self.dis_optimizer.step()
-        return d_loss.item(), r_mean, f_mean, gp
+
+        return d_loss, d_loss_real, d_loss_fake
 
    
 
