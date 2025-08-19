@@ -9,6 +9,7 @@ from data_prep import get_cifar10
 from vae_model import VAE, vae_loss
 from cvae_model import ConditionalVAE
 from cgan_model import CGAN
+from cgan_model_improved import CGAN_WGAN_GP
 from visualization import show_reconstructions, sample_latent_space
 from utils import save_checkpoint, load_checkpoint
 
@@ -186,13 +187,83 @@ def train_cgan(model: CGAN, train_loader, epochs=200, checkpoint_path=None):
     return d_losses, g_losses
 
 
-            
+def train_wcgan(model:CGAN_WGAN_GP, train_loader, epochs = 200, n_critic = 5, checkpoint_path = None):
+    print(f"Using {model.device}")
+
+    model.generator.to(model.device)
+    model.discriminator.to(model.device)
+
+    start_epoch = 0
+    
+    if checkpoint_path is not None:
+        start_epoch = load_checkpoint(model, model.gen_optimizer, model.dis_optimizer, checkpoint_path, model.device, is_cgan=True)
+        print(f"Resuming training from epoch {start_epoch + 1}")
+
+    fixed_noise = model.generate_noise(100)
+    fixed_labels = torch.cat([torch.full((10,), i) for i in range(model.num_classes)]).to(model.device)
+
+    os.makedirs("wcgan_samples", exist_ok=True)
+    os.makedirs("wcgan_checkpoints", exist_ok=True)
+
+    d_losses = []
+    g_losses = []
+
+
+    for epoch in range(start_epoch, epochs):
+        epoch_d_loss = 0
+        epoch_g_loss = 0
+        num_batches = len(train_loader)
+
+        for batch_idx, (imgs, labels) in enumerate(train_loader):
+            batch_size = imgs.size(0)
+            imgs = imgs.to(device)
+            labels = labels.to(device)
+
+            for _ in range(n_critic):
+                d_loss, real_score, fake_score, gp = model.train_discriminator_step(imgs, labels)
+                epoch_d_loss += d_loss.item()
+
+            g_loss = model.train_generator_step(batch_size)
+            epoch_g_loss += g_loss.item()
+
+            if batch_idx % 100 == 0:
+                print(
+                    f"[Epoch {epoch+1}/{epochs}] [Batch {batch_idx}/{num_batches}] "
+                    f"[D loss: {d_loss.item():.4f}, GP: {gp:.4f}, Real score: {real_score:.4f}, Fake score: {fake_score:.4f}] "
+                    f"[G loss: {g_loss.item():.4f}]"
+                )
+
+        avg_d_loss = epoch_d_loss / num_batches
+        avg_g_loss = epoch_g_loss / num_batches
+        d_losses.append(avg_d_loss)
+        g_losses.append(avg_g_loss)
+
+        print(f"Epoch {epoch+1} - Avg D Loss: {avg_d_loss:.4f}, Avg G Loss: {avg_g_loss:.4f}")
+
+        model.gen_scheduler.step()
+        model.dis_scheduler.step()
+
+        with torch.no_grad():
+            model.generator.eval()
+            samples = model(fixed_noise, fixed_labels).detach().cpu()
+            save_image(samples, f"wcgan_samples/{epoch+1:04d}.png", nrow=10, normalize=True)
+            model.generator.train()
+
+        if (epoch + 1) % 10 == 0:
+            save_checkpoint(model, model.gen_optimizer, model.dis_optimizer, epoch + 1,
+                          f"wcgan_checkpoints/wcgan_epoch_{epoch+1}.pth", is_cgan=True)
+
+    save_checkpoint(model, model.gen_optimizer, model.dis_optimizer, epochs,
+                   f"wcgan_checkpoints/wcgan_final.pth", is_cgan=True)
+
+    return d_losses, g_losses
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "vae":
         torch.manual_seed(42)
         train_loader, test_loader, classes = get_cifar10(batch_size=64)
         model = VAE(latent_dim=128)
-        train_vae(model, train_loader, test_loader, epochs=50, lr=5e-5, beta=1.0, 
+        train_vae(model, train_loader, test_loader, epochs=50, lr=1e-4, beta=1.0, 
                     device="cuda" if torch.cuda.is_available() else "cpu", 
                     checkpoint_path="checkpoints/vae_final.pth" if os.path.exists("checkpoints/vae_final.pth") else None)
         
@@ -210,7 +281,15 @@ if __name__ == "__main__":
         print(f"Classes: {classes}")
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        model = CGAN(num_classes=len(classes), device=device)
-        train_cgan(model, train_loader, epochs = 200, checkpoint_path="cgan_checkpoints/cgan_final.pth" if os.path.exists("cgan_checkpoints/cgan_final.pth") else None)
-    else:
-        print("Enter 'vae', 'cvae' or 'cgan' in the command")
+        model = CGAN(num_classes=len(classes), lr=2e-5, device=device)
+        train_cgan(model, train_loader, epochs = 250, checkpoint_path="cgan_checkpoints/cgan_epoch_200.pth" if os.path.exists("cgan_checkpoints/cgan_epoch_200.pth") else None)
+
+
+    elif len(sys.argv) > 1 and sys.argv[1] == "wcgan":
+        torch.manual_seed(42)
+        train_loader, classes = get_cifar10(batch_size=128, is_cgan=True) 
+        print(f"Classes: {classes}")
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = CGAN_WGAN_GP(num_classes=len(classes), lr=5e-5, device=device)
+        train_wcgan(model, train_loader, epochs = 200, checkpoint_path="wcgan_checkpoints/wcgan_epoch_140.pth" if os.path.exists("wcgan_checkpoints/wcgan_epoch_140.pth") else None)
