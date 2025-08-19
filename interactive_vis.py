@@ -164,7 +164,7 @@ def main():
     available_models = {
         "VAE": "checkpoints/vae_final.pth",
         "CVAE": "checkpoints/cvae_final.pth",
-        "CGAN": "cgan_checkpoints/cgan_final.pth", 
+        "CGAN": "cgan_checkpoints/cgan_epoch_220.pth", 
         # "SAGAN": "checkpoints/sagan_epoch_50.pth",
         # "Diffusion": "checkpoints/diffusion_final.pth"  # For future
     }
