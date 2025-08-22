@@ -6,10 +6,10 @@ import torch.nn.functional as F
 from torchvision.utils import save_image
 import torch.optim as optim
 from data_prep import get_cifar10
-from vae_model import VAE, vae_loss
-from cvae_model import ConditionalVAE
-from cgan_model import CGAN
-from cgan_model_improved import CGAN_WGAN_GP
+from models.vae_model import VAE, vae_loss
+from models.cvae_model import ConditionalVAE
+from models.cgan_model import CGAN
+from models.cgan_model_improved import CGAN_WGAN_GP
 from visualization import show_reconstructions, sample_latent_space
 from utils import save_checkpoint, load_checkpoint
 

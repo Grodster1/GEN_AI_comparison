@@ -2,9 +2,9 @@ import streamlit as st
 import torch
 import torch.nn.functional as F
 from data_prep import get_cifar10
-from vae_model import VAE
-from cvae_model import ConditionalVAE
-from cgan_model import CGAN
+from models.vae_model import VAE
+from models.cvae_model import ConditionalVAE
+from models.cgan_model import CGAN
 from visualization import interpolate_latent_space, visualize_latent_space
 from utils import load_checkpoint
 import os
@@ -164,7 +164,7 @@ def main():
     available_models = {
         "VAE": "checkpoints/vae_final.pth",
         "CVAE": "checkpoints/cvae_final.pth",
-        "CGAN": "cgan_checkpoints/cgan_epoch_220.pth", 
+        "CGAN": "cgan_checkpoints/cgan_epoch_200.pth", 
         # "SAGAN": "checkpoints/sagan_epoch_50.pth",
         # "Diffusion": "checkpoints/diffusion_final.pth"  # For future
     }
@@ -264,16 +264,16 @@ def main():
                                 st.image(img, use_container_width=True)
                                 st.caption("Smooth transition between two points in latent space")
             else:
-                st.info("🚧 Interpolation for GANs coming soon!")
+                st.info("Interpolation for GANs coming soon!")
         
         # Latent space visualization (VAE and CVAE)
         elif viz_type == "Latent Space Visualization" and model_choice in ["VAE", "CVAE"]:
-            st.subheader("🌌 Latent Space Visualization")
+            st.subheader("Latent Space Visualization")
             
             method = st.selectbox("Reduction Method", ["t-SNE", "PCA"])
             n_samples = st.slider("Number of Samples", 100, 2000, 1000)
             
-            if st.button("🌌 Generate Visualization", type="primary"):
+            if st.button("Generate Visualization", type="primary"):
                 with st.spinner("Computing dimensionality reduction..."):
                     fig = visualize_latent_space(
                         model, test_loader, method=method.lower(),
@@ -300,16 +300,15 @@ def main():
             - **VAE**: Variational Autoencoder for smooth latent space
             - **CVAE**: Conditional VAE for class-controlled generation
             - **CGAN**: Conditional GAN for class-specific generation
-            - **SAGAN**: Self-Attention GAN for improved quality
             """)
             
             # Model comparison info
             st.subheader("📊 Model Comparison")
             comparison_data = {
-                "Model": ["VAE", "CVAE", "CGAN", "SAGAN"],
-                "Latent Dim": [128, 128, 100, 100],
-                "Conditional": ["❌", "✅", "✅", "✅"],
-                "Quality": ["⭐⭐⭐", "⭐⭐⭐⭐", "⭐⭐⭐⭐", "⭐⭐⭐⭐⭐"]
+                "Model": ["VAE", "CVAE", "CGAN"],
+                "Latent Dim": [128, 128, 100],
+                "Conditional": ["❌", "✅", "✅"],
+                "Quality": ["⭐⭐⭐", "⭐⭐⭐⭐", "⭐⭐⭐⭐"]
             }
             st.table(comparison_data)
 
